@@ -1,0 +1,81 @@
+---
+title: "Storyboard Commentary"
+output: 
+  flexdashboard::flex_dashboard:
+    storyboard: true
+runtime: shiny
+---
+
+### Frame 0
+
+INTRODUCE TOPIC, SHOW SOME STATS
+
+### Frame 1
+
+SHOW MAP OF CANCER USING LEAFLET
+
+```{r}
+renderPlot({
+  hist(faithful$eruptions, probability = TRUE, breaks = as.numeric(input$n_breaks),
+       xlab = "Duration (minutes)", main = "Geyser Eruption Duration")
+  
+  dens <- density(faithful$eruptions, adjust = input$bw_adjust)
+  lines(dens, col = "blue")
+})
+```
+
+*** 
+```{r}
+selectInput("n_breaks", label = "Number of bins:",
+            choices = c(10, 20, 35, 50), selected = 20)
+
+sliderInput("bw_adjust", label = "Bandwidth adjustment:",
+            min = 0.2, max = 2, value = 1, step = 0.2)
+```
+
+Some commentary about Frame 1.
+
+### Frame 2 {data-commentary-width=400}
+
+SHOW DOTS AND COLORS BASED ON NUMBER OF SUPERFUND SITES
+
+POINT OUT SPECIFIC SITES THAT ARE BAD
+
+#### Plot1: wt, hp
+
+```{r}
+plotDf <- mtcars[,c("wt","hp")]
+plot(plotDf)
+```
+
+
+```{r}
+plotDf <- mtcars[,c("mpg","disp")]
+plot(plotDf)
+```
+***
+
+https://shiny.rstudio.com/gallery/superzip-example.html 
+
+Some commentary about Frame 2.
+
+### Frame 3
+
+MAP WITH POWERPLANTS
+
+### Frame 4
+
+More specific commentary 
+
+use leaflet proxy to select specific points on the map that are the worst for cancer
+
+https://stackoverflow.com/questions/48781380/shiny-how-to-highlight-an-object-on-a-leaflet-map-when-selecting-a-record-in-a
+
+### Frame 5
+
+Run models to see the most important sites. have to have results already made.
+
+### Frame 6
+Regression results showing prediction and actual relationship
+
+### Frame 7 conclusion, references, and github.
