@@ -1,0 +1,12 @@
+name: test_app
+title: test_app
+username:
+account: aem303
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 2283380
+bundleId: 3134415
+url: https://aem303.shinyapps.io/test_app/
+when: 1589245984.93405
+asMultiple: FALSE
+asStatic: FALSE
