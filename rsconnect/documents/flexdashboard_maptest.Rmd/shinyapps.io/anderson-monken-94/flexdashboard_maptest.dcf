@@ -1,0 +1,12 @@
+name: flexdashboard_maptest
+title: flexdashboard_maptest
+username:
+account: anderson-monken-94
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 2301892
+bundleId: 3149586
+url: https://anderson-monken-94.shinyapps.io/flexdashboard_maptest/
+when: 1589501843.52517
+asMultiple: FALSE
+asStatic: FALSE
