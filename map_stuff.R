@@ -24,6 +24,28 @@ us.map$latitude <- fips_latlong$latitude
 us.map$longitude <- fips_latlong$longitude
 
 map_data <- merge(us.map, df_fips, by=c("GEOID"))
+
+test <- as.data.frame(map_data) %>% 
+  mutate(region = case_when(state %in% c('CT','ME','MA','NH','RI','VT', 'NJ','NY','PA') ~ 'Northeast',
+                            state %in% c('IL','IN','MI','OH','WI',  'IA','KS','MN','MI','NE','ND','SD') ~ 'Midwest',
+                            state %in% c('DE','FL','GA','MD','NC','SC','VA','DC','WV',  'AL','KY','MS','TN', 'AR','LA','OK','TX') ~ 'South',
+                            state %in% c('AZ','CO','ID','MT','NV','NM','UT','WY', 'AK','CA','HI','OR','WA') ~ 'West'
+),
+division = case_when(state %in% c('CT','ME','MA','NH','RI','VT') ~ 'New England',
+                     state %in% c('NJ','NY','PA') ~ 'Mid-Atlantic',
+                     state %in% c('IL','IN','MI','OH','WI') ~ 'East North Central',
+                     state %in% c('IA','KS','MN','MI','NE','ND','SD') ~ 'West Nort Central',
+                     state %in% c('DE','FL','GA','MD','NC','SC','VA','DC','WV') ~ 'South Atlantic',
+                     state %in% c('AL','KY','MS','TN') ~ 'East South Central',
+                     state %in% c('AR','LA','OK','TX') ~ 'West South Central',
+                     state %in% c('AZ','CO','ID','MT','NV','NM','UT','WY') ~ 'Mountain',
+                     state %in% c('AK','CA','HI','OR','WA') ~ 'Pacific'
+)
+)
+
+map_data$division <- test$division
+map_data$region <- test$region
+
 saveRDS(map_data,'map_data.rds')
 
 # Format popup data for leaflet map.

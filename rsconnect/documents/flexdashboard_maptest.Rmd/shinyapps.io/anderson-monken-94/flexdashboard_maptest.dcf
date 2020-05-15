@@ -5,8 +5,8 @@ account: anderson-monken-94
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 2301892
-bundleId: 3149586
+bundleId: 3150186
 url: https://anderson-monken-94.shinyapps.io/flexdashboard_maptest/
-when: 1589501843.52517
+when: 1589515135.77392
 asMultiple: FALSE
 asStatic: FALSE

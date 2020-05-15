@@ -26,6 +26,8 @@ runtime: shiny
         font-size: 50px;
     }
 
+
+
 </style>
 
 ```{r setup, include = FALSE}
@@ -35,10 +37,11 @@ library(shinyjs)
 library(flexdashboard)
 library(plotly)
 library(shinycssloaders)
-library(data.table)
+
 
 map_data <- readRDS('map_data.rds')
 map_data_df <- as.data.frame(map_data)
+map_data_df <- map_data_df %>% mutate(loc = paste0(county,", ",state))
 popup_dat <- readRDS('popup_cancer.rds')
 bins_sites <- c(0, 1, 2, 3, 5, 8, 10, 15, 20, Inf)
 pal_sites <- colorBin("YlOrRd", domain = map_data$num_sites, bins = bins_sites)
@@ -50,21 +53,67 @@ pal_cancer <- colorQuantile("YlOrRd", NULL, n = 9)
 
 react_list <- reactiveValues()
 react_list$num_traces_plotly_cancer = 0
+react_list$num = 25
 k <- 3
 
-
-uu <-  data.table(
-  row_num=seq(100),
-  Latitude=c(52+cumsum(runif(100,-0.001,0.001))),
-  Longitude=c(1+cumsum(runif(100,-0.001,0.001)))
-)
 ```
 
 
-### Intro: Heatmap of Cancer Rates by County {data-commentary-width=600}
+### Distribution of Cancer Rates
+
+```{r}
+plotlyOutput("plotly_cancer_dist")
+output$plotly_cancer_dist <- renderPlotly({
+  map_data_df_dist <- map_data_df %>% filter(!state %in% input$exclude_state_dist_us)
+  plot_ly(
+          x = map_data_df_dist[[input$dist_level_us]], 
+          y = map_data_df_dist[['cancer_per100k']], 
+          color = map_data_df_dist[[input$dist_level_us]], 
+          type = "box", 
+          boxpoints = "all", 
+          jitter = 0.3,
+        pointpos = -1.0,
+        hoverinfo = "text",
+                      hovertext = paste0("<b>Location: </b>", 
+                          map_data_df_dist$county,", ",map_data_df_dist$state, 
+                          "<br><b>Cancer/100k: </b>", 
+                          map_data_df_dist$cancer_per100k))
+        })
+
+# data = map_data_df %>% mutate(cancer_pCI = cancer_95ciH - cancer_per100k, cancer_mCI = cancer_per100k - cancer_95ciL) %>% filter(!is.na(cancer_per100k)) %>% arrange(cancer_per100k)
+# data <- data %>% mutate(order = 1:nrow(data))
+# plot_ly(data = data,
+#         x = ~order,
+#         y = ~cancer_per100k,
+#         error_y = list(array = ~cancer_pCI),
+#         type = 'scatter',
+#         mode = 'markers'
+# )
+
+```
+
+***
+
+The state by state distribution of counties shows clear differences in cancer rates.
+
+```{r}
+
+selectInput("dist_level_us","Select U.S. Breakdown Type",list("Census Region (4)" = "region",
+                                                           "Census Division (9)" = "division",
+                                                           "States" = "state"))
+
+pickerInput("exclude_state_dist_us","Exclude U.S. States",choices = c('AL','AK','AZ','AR','CA','CO','CT','DC','FL','GA','HI','ID','IL','IN','IA','KY','LA','ME','MD','MA','MI','MS','MO','MT','NE','NJ','NM','NY','NC','ND','OH','OK','OR','PA','SC','SD','TN','TX','UT','VA','WA','WV','WI','WY','DE','NV','NH','VT','RI'), options = list(`actions-box` = TRUE),multiple = T)
+```
+
+
+### Intro: Heatmap of Cancer Rates by County {data-commentary-width=375}
 
 ```{r, eval = TRUE}
-leafletOutput("intro_map")
+
+
+
+
+fillRow(leafletOutput("intro_map"))
 
 
 output$intro_map <- renderLeaflet({
@@ -99,8 +148,9 @@ output$intro_map <- renderLeaflet({
 # })
 
 observeEvent(input$go_worst10, {
-
-    worst_5 <- as.data.frame(map_data) %>% dplyr::arrange(desc(cancer_per100k)) %>% head(20)
+    
+    worst_5 <- map_data_df %>% dplyr::arrange(desc(cancer_per100k)) %>% head(react_list$num)
+    worst_5['order'] <- 1:nrow(worst_5)
     #text<-paste("Latitude ", round(worst_5$lat,2), "Longtitude ", round(worst_5$lng,2))
 
     proxy <- leafletProxy("intro_map")
@@ -108,13 +158,19 @@ observeEvent(input$go_worst10, {
     ## This displays the pin drop circle
     proxy %>% 
         clearGroup("worst_points") %>%
-        addCircles(worst_5$longitude, worst_5$latitude, radius=50000, color="blue", group = "worst_points")
+        addCircles(worst_5$longitude, worst_5$latitude, radius=50000, color="blue", group = "worst_points", 
+                   popup = paste0("<strong>County: </strong>", 
+                                                    worst_5$county, 
+                                                    "<br><strong>Cancer/100k: </strong>", 
+                                                    worst_5$cancer_per100k,
+                                                    "<br><strong>Rank: </strong> ",worst_5$order))
 
 })
 
 observeEvent(input$go_best10, {
-
-    best5 <- as.data.frame(map_data) %>% dplyr::arrange(cancer_per100k) %>% head(20)
+    
+    best5 <- map_data_df %>% dplyr::arrange(cancer_per100k) %>% head(react_list$num)
+    best5['order'] <- 1:nrow(best5)
     #text<-paste("Latitude ", round(worst_5$lat,2), "Longtitude ", round(worst_5$lng,2))
 
     proxy <- leafletProxy("intro_map")
@@ -122,36 +178,129 @@ observeEvent(input$go_best10, {
     ## This displays the pin drop circle
     proxy %>% 
         clearGroup("best_points") %>%
-        addCircles(best5$longitude, best5$latitude, radius=50000, color="green", group = "best_points")
+        addCircles(best5$longitude, best5$latitude, radius=50000, color="green", group = "best_points", 
+                   popup = paste0("<strong>County: </strong>", 
+                                                    best5$county, 
+                                                    "<br><strong>Cancer/100k: </strong>", 
+                                                    best5$cancer_per100k,
+                                                    "<br><strong>Rank: </strong> ",best5$order))
 
 })
 radius = 3
-# When circle is hovered over...show a popup
+# When circle is clicked on...show a popup
 observeEvent(input$intro_map_shape_click$id, {
     pointId <- input$intro_map_shape_click$id
     shape_i = map_data_df %>% filter(GEOID == pointId)
     offset = isolate((input$intro_map_bounds$north - input$intro_map_bounds$south) / (23 + radius + (18 - input$intro_map_zoom)^2 ))
 
-    leafletProxy("intro_map") %>% addPopups(lat = shape_i$latitude + offset, lng = shape_i$longitude, as.character(pointId))
+    leafletProxy("intro_map") %>% addPopups(lat = shape_i$latitude + offset, lng = shape_i$longitude, 
+                                                    paste0("<strong>County: </strong>", 
+                                                    shape_i$county, 
+                                                    "<br><strong>Cancer/100k: </strong>", 
+                                                    shape_i$cancer_per100k))
   })
+
+
+observeEvent(input$best_popup, {
+    leafletProxy("intro_map") %>%
+    clearPopups()
+    best <- map_data_df %>% dplyr::arrange(desc(cancer_per100k)) %>% head(react_list$num)
+    best['order'] <- 1:nrow(best)
+    offset = isolate((input$intro_map_bounds$north - input$intro_map_bounds$south) / (23 + radius*1.8 + (18 - input$intro_map_zoom)^2 ))
+
+    #shape_i <- best[react_list$num,]
+    leafletProxy("intro_map") %>% addPopups(lat = best$latitude + offset, lng = best$longitude, 
+                                                  paste0("<strong>County: </strong>", 
+                                                  best$county, 
+                                                  "<br><strong>Cancer/100k: </strong>", 
+                                                  best$cancer_per100k,
+                                                    "<br><strong>Rank: </strong> ",best$order))
+
+    #react_list$num <- react_list$num + 1
+  })
+
+observeEvent(input$worst_popup, {
+    leafletProxy("intro_map") %>%
+    clearPopups()
+    worst <- map_data_df %>% dplyr::arrange(cancer_per100k) %>% head(react_list$num)
+    worst['order'] <- 1:nrow(worst)
+    offset = isolate((input$intro_map_bounds$north - input$intro_map_bounds$south) / (23 + radius*1.8 + (18 - input$intro_map_zoom)^2 ))
+
+    #shape_i <- best[react_list$num,]
+    leafletProxy("intro_map") %>% addPopups(lat = worst$latitude + offset, lng = worst$longitude, 
+                                                  paste0("<strong>County: </strong>", 
+                                                  worst$county, 
+                                                  "<br><strong>Cancer/100k: </strong>", 
+                                                  worst$cancer_per100k,
+                                                    "<br><strong>Rank: </strong> ",worst$order))
+
+    #react_list$num <- react_list$num + 1
+  })
+```
+
+
+```{r}
+# TRIED TO GET POPUPS TO COME UP ONE AT A TIME
+# observe({
+#     req(!is.null(react_list$num))
+#     req(react_list$num <= 10 & react_list$num >= 2)
+#     
+#     best <- map_data_df %>% dplyr::arrange(desc(cancer_per100k)) %>% head(num)
+#       offset = isolate((input$intro_map_bounds$north - input$intro_map_bounds$south) / (23 + radius*1.5 + (18 - input$intro_map_zoom)^2 ))
+#   
+#       shape_i <- best[react_list$num,]
+#       leafletProxy("intro_map") %>% addPopups(lat = shape_i$latitude + offset, lng = shape_i$longitude, 
+#                                                     paste0(shape_i$county, 
+#                                                     ": ", 
+#                                                     shape_i$cancer_per100k))
+#       
+#       react_list$num <- react_list$num + 1
+#       
+# })
+
+observeEvent(input$clear_intro_map,{
+  leafletProxy("intro_map") %>%
+    clearPopups()
+  leafletProxy("intro_map")  %>% 
+        clearGroup("best_points")
+  leafletProxy("intro_map")  %>% 
+        clearGroup("worst_points")
+  react_list$num <- input$num_intro
+
+})
 ```
 
 ***
 
-This project investigates county-level cancer rates around the United States. There are many factors that contribute to cancer, including hereditary and environmental causes. This story will focus on how environmental contamination from toxic waste sites and powerplants has an effect on cancer rates. 
+This project investigates county-level cancer rates around the United States. There are many factors that contribute to cancer, including hereditary and environmental causes. This story will focus on how environmental contamination from toxic waste sites and powerplants have an effect on cancer rates. 
 
-See the storyboard at the top of the page for the outline of the project.
+Start off by ***clicking*** on the heatmap showing cancer rates in a few counties to get yourself familiar with the NIH data for age-adjusted cancer rates. ***Clicking*** a county will show its name and its age-adjusted cancer rate per 100 thousand people. In subsequent frames more variables will be introduced.
 
-Start off by *clicking* on the heatmap showing cancer rates to get yourself familiar with the NIH data for age-adjusted cancer rates by county.
-
-Here are some broad statistics on the cancer rates around the country and the counties doing the worst.
-
-Click the buttons below to see where the 10 highest and 10 lowest cancer rate counties are located on the map.
+For now, let’s examine the distribution of cancer rates around the country. Click the buttons below to see the location of the 25 highest and 25 lowest cancer rate counties are located on the map. Click on the info buttons to show info for the highest or lowest counties in the US.
 
 ```{r}
-fluidRow(actionButton("go_worst10", "10 highest counties"),
-actionButton("go_best10", "10 lowest counties"),align="center")
+fluidRow(actionButton("go_worst10", "Highest rate counties"),
+actionButton("go_best10", "Lowest rate counties"),align="center")
 ```
+
+```{r}
+fluidRow(actionButton("best_popup", "Highest counties info"),
+         actionButton("worst_popup", "Lowest counties info"),align="center")
+```
+
+Adjust the # below to show greater or fewer counties in the rankings. You must reset the map after changing the value.
+
+```{r}
+fluidRow(numericInput("num_intro", NULL, value = 25, min = 1, max = 100, step = 5, width = '25%'),align="center")
+```
+
+You must reset the map to make changes to the number of items to show in the ranking.
+
+```{r}
+fluidRow(actionButton("clear_intro_map", "Reset Map"),align="center")
+```
+
+The West and Southwest have many of the counties with the lowest cancer rates. Many of the higher cancer rate counties are in the South, particularly in Kentucky. The most interesting border between the best and worst counties appears near the tri-cities region in southwest Virginia. Kentucky counties are experiencing the highest cancer rates, while their Virginian neighbors have the lowest rates in the country.
 
 ### Heatmap of Cancer Rates by County <br> East Coast Problems {data-commentary-width=600}
 
@@ -229,35 +378,37 @@ observeEvent({event_data("plotly_click", source="cancer_plotly")}, {
     click_data <- event_data("plotly_click", source="cancer_plotly")
     test_df <<- react_list$df_cancer
     shape_i = react_list$df_cancer[click_data[['pointNumber']] + 1,]
-    offset = isolate((input$cancer_map_bounds$north - input$cancer_map_bounds$south) / (23 + radius + (18 - input$cancer_map_zoom)^2 ))
-
+    offset = isolate((input$cancer_map_bounds$north - input$cancer_map_bounds$south) / (23 + 7 + (18 - input$cancer_map_zoom)^2 ))
+    
+    message("Plotly point clicked:")
+    message(shape_i$county)
+    message(click_data)
+    
     leafletProxy("cancer_map") %>% addPopups(lat = shape_i$latitude + offset, lng = shape_i$longitude, 
                                              paste0("<strong>County: </strong>", 
                                                     shape_i$county, 
-                                                    "<br><strong>Cancer Rate (Age Adjusted) Out of 100,000: </strong>", 
-                                                    shape_i$cancer_per100k,
-                                                    "<br><strong># Superfund Sites: </strong>", 
-                                                    shape_i$num_sites,
-                                                    "<br><strong># Powerplants: </strong>", 
-                                                    shape_i$num_pp))
+                                                    "<br><strong>Cancer/100k: </strong>", 
+                                                    shape_i$cancer_per100k))
   })
 
-renderPrint({
-    message('clicked')
-    d <- event_data("plotly_click", source="cancer_plotly")
-    print(d)
-    if (!is.null(d)) d
-  })
-  
-renderPrint({
-  d <- event_data("plotly_click", source="cancer_plotly")
-  if (!is.null(d)){
-    shape_i = react_list$df_cancer[d[['pointNumber']] + 1,]
-    shape_i$county
-    message(shape_i$county)
-    message(d)
-  }
-})
+
+# # SEE PLOTLY CLICK DATA
+# renderPrint({
+#     message('clicked')
+#     d <- event_data("plotly_click", source="cancer_plotly")
+#     print(d)
+#     if (!is.null(d)) d
+#   })
+#   
+# renderPrint({
+#   d <- event_data("plotly_click", source="cancer_plotly")
+#   if (!is.null(d)){
+#     shape_i = react_list$df_cancer[d[['pointNumber']] + 1,]
+#     shape_i$county
+#     message(shape_i$county)
+#     message(d)
+#   }
+# })
 
 
 observeEvent(input$clear_cancer_popup_button, {
@@ -269,20 +420,17 @@ plotlyOutput("cancer_plotly")
 output$cancer_plotly <- renderPlotly({
   react_list$df_cancer_map <- dataInBounds()
   react_list$df_cancer <- as.data.frame(react_list$df_cancer_map) %>% arrange(GEOID) %>% filter(!is.na(cancer_per100k)) %>% filter(!is.na(trend5yr))
-  plot_ly(            x = react_list$df_cancer$trend5yr, 
-                      y = react_list$df_cancer$cancer_per100k,
+  plot_ly(data = react_list$df_cancer,
+                      x = ~trend5yr, 
+                      y = ~cancer_per100k,
                       type = "scatter",
                       mode = "markers",
                       source="cancer_plotly",
                       hoverinfo = "text",
                       hovertext = paste0("<b>Location: </b>", 
                           react_list$df_cancer$county,", ",react_list$df_cancer$state, 
-                          "<br><b>Cancer Rate (Age Adj.) per 100k: </b>", 
-                          react_list$df_cancer$cancer_per100k,
-                          "<br><b># Superfund Sites: </b>", 
-                          react_list$df_cancer$num_sites,
-                          "<br><b># Powerplants: </b>", 
-                          react_list$df_cancer$num_pp)
+                          "<br><b>Cancer/100k: </b>", 
+                          react_list$df_cancer$cancer_per100k)
                       )
   })
 
@@ -296,37 +444,6 @@ actionButton("clear_cancer_popup_button", "Clear popups on map")
 Some commentary about Frame 1.
 
 ### Frame 2 {data-commentary-width=400}
-
-```{r, eval = FALSE}
-renderLeaflet({
-  leaflet(data = map_data) %>%
-  # Base groups
-  addTiles() %>%
-  setView(lng = -105, lat = 40, zoom = 4) %>% 
-  addPolygons(fillColor = ~pal_sites(num_sites), 
-              fillOpacity = 0.8, 
-              color = "#BDBDC3", 
-              weight = 1,
-              popup = popup_dat,
-              group="Number of Superfund Sites") %>% 
-  addPolygons(fillColor = ~pal_cancer(cancer_per100k), 
-              fillOpacity = 0.8, 
-              color = "#BDBDC3", 
-              weight = 1,
-              popup = popup_dat,
-              group="Cancer Rate/100,000 by Counties") %>% 
-  addPolygons(fillColor = ~pal_pp(num_pp), 
-              fillOpacity = 0.8, 
-              color = "#BDBDC3", 
-              weight = 1,
-              popup = popup_dat,
-              group="Number of Powerplants") %>% 
-  addLayersControl(
-    position = c('topright'),
-    baseGroups = c("Cancer Rate/100,000 by Counties","Number of Superfund Sites","Number of Powerplants"), #overlayGroups = c("Cancer Rate/100,000 by Counties","Number of Superfund Sites"),
-    options = layersControlOptions(collapsed = FALSE))
-})
-```
 
 ***
 
