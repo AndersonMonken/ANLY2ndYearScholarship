@@ -6,7 +6,16 @@ library(sp)
 library(rgeos)
 setwd('/home/anderson/ANLY2ndYearScholarship/')
 
-df_fips <- read_feather('fips_data.feather') %>% mutate(GEOID = fips)
+
+df_fips_codes <- read_feather('fips_codes.feather')
+df_fips <- read_feather('df_county_data.feather') %>% mutate(GEOID = fips)
+df_pp <- read_feather('pp_data.feather') %>% left_join(df_fips_codes[c('fips','county','state')])
+df_superfund <- read_feather('superfund_data.feather') %>% left_join(df_fips_codes[c('fips','county','state')])
+
+saveRDS(df_pp,'pp_data.rds')
+saveRDS(df_superfund,'superfund_data.rds')
+
+
 us.map <- tigris::counties(cb = TRUE, year = 2015)
 
 # Make sure other outling islands are removed.
@@ -27,24 +36,36 @@ map_data <- merge(us.map, df_fips, by=c("GEOID"))
 
 test <- as.data.frame(map_data) %>% 
   mutate(region = case_when(state %in% c('CT','ME','MA','NH','RI','VT', 'NJ','NY','PA') ~ 'Northeast',
-                            state %in% c('IL','IN','MI','OH','WI',  'IA','KS','MN','MI','NE','ND','SD') ~ 'Midwest',
+                            state %in% c('IL','IN','MI','OH','WI',  'IA','KS','MN','MO','NE','ND','SD') ~ 'Midwest',
                             state %in% c('DE','FL','GA','MD','NC','SC','VA','DC','WV',  'AL','KY','MS','TN', 'AR','LA','OK','TX') ~ 'South',
                             state %in% c('AZ','CO','ID','MT','NV','NM','UT','WY', 'AK','CA','HI','OR','WA') ~ 'West'
 ),
 division = case_when(state %in% c('CT','ME','MA','NH','RI','VT') ~ 'New England',
                      state %in% c('NJ','NY','PA') ~ 'Mid-Atlantic',
                      state %in% c('IL','IN','MI','OH','WI') ~ 'East North Central',
-                     state %in% c('IA','KS','MN','MI','NE','ND','SD') ~ 'West Nort Central',
+                     state %in% c('IA','KS','MN','MO','NE','ND','SD') ~ 'West North Central',
                      state %in% c('DE','FL','GA','MD','NC','SC','VA','DC','WV') ~ 'South Atlantic',
                      state %in% c('AL','KY','MS','TN') ~ 'East South Central',
                      state %in% c('AR','LA','OK','TX') ~ 'West South Central',
                      state %in% c('AZ','CO','ID','MT','NV','NM','UT','WY') ~ 'Mountain',
                      state %in% c('AK','CA','HI','OR','WA') ~ 'Pacific'
-)
+),
+epa_region = case_when(state %in% c('CT','ME','MA','NH','RI','VT') ~ 1,
+                     state %in% c('NJ','NY') ~ 2,
+                     state %in% c('PA','DE','MD','VA','DC','WV') ~ 3,
+                     state %in% c('FL','GA','NC','SC','AL','KY','MS','TN') ~ 4,
+                     state %in% c('IL','IN','MI','MN','OH','WI') ~ 5,
+                     state %in% c('AR','LA','OK','TX','NM') ~ 6,
+                     state %in% c('IA','KS','MO','NE') ~ 7,
+                     state %in% c('CO','MT','UT','WY','ND','SD') ~ 8,
+                     state %in% c('AZ','CA','NV','HI') ~ 9,
+                     state %in% c('AK','OR','WA','ID') ~ 10
+), epa_region = as.factor(epa_region)
 )
 
 map_data$division <- test$division
 map_data$region <- test$region
+map_data$epa_region <- test$epa_region
 
 saveRDS(map_data,'map_data.rds')
 

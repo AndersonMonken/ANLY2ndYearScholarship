@@ -37,81 +37,160 @@ library(shinyjs)
 library(flexdashboard)
 library(plotly)
 library(shinycssloaders)
-
+library(shinyWidgets)
+library(dplyr)
+library(stringr)
+library(RColorBrewer)
 
 map_data <- readRDS('map_data.rds')
 map_data_df <- as.data.frame(map_data)
-map_data_df <- map_data_df %>% mutate(loc = paste0(county,", ",state))
+superfund_data <- readRDS('superfund_data.rds')
+pp_data <- readRDS('pp_data.rds')
 popup_dat <- readRDS('popup_cancer.rds')
-bins_sites <- c(0, 1, 2, 3, 5, 8, 10, 15, 20, Inf)
+
+# superfund color schemes
+bins_sites <- c(0, 1, 2, 3, 4, 5,6, 10, 15,  Inf)
 pal_sites <- colorBin("YlOrRd", domain = map_data$num_sites, bins = bins_sites)
-bins_pp <- c(0, 1,2,3, 5, 12, 25, 36, 51, Inf)
+
+bins_score <- c(0, 1, 2, 3, 4, 5,6, 10, 15,  Inf)
+pal_score <- colorBin("YlOrRd", domain = map_data$sum_site_score)
+
+# cancer color scheme
+bins_cancer <- c(217,379,411,432,448,461,474,489,510,Inf)
+pal_cancer <- colorBin("YlOrRd", map_data$cancer_per100k, bins = bins_cancer)
+
+# pp color schemes
+bins_pp <- c(0, 1,2, 5, 12, 25, 36, 51, Inf)
 pal_pp <- colorBin("YlOrRd", domain = map_data$num_pp, bins = bins_pp)
-#pal_pp <- colorQuantile("YlOrRd", NULL, n = 4)
+bins_pp_mw <- c(0,1,50,150, 960, 1580, 2300, 2900, 5000, Inf)
+pal_pp_mw <- colorBin("YlOrRd", domain = map_data$sum_capacity_mw, bins = bins_pp_mw)
 
-pal_cancer <- colorQuantile("YlOrRd", NULL, n = 9)
-
-react_list <- reactiveValues()
+# setup variables for the maps (mostly pp)
+react_list <- reactiveValues(pp_num_type = "num_pp",pp_capacity_type = "sum_capacity_mw",pp_pal = pal_pp,pp_pal_mw = pal_pp_mw, pp_data = pp_data)
 react_list$num_traces_plotly_cancer = 0
 react_list$num = 25
 k <- 3
-
+polygon_data_num <- map_data[["num_pp"]]
+polygon_data_capacity <- map_data@data[["sum_capacity_mw"]]
+pal_num <- pal_pp
+pal_mw <- pal_pp_mw
+pp_data_map <- pp_data
+capacity_variable <- "sum_capacity_mw"
 ```
 
-
-### Distribution of Cancer Rates
+### Superfund Sites - <br> Contamination Across the USA
 
 ```{r}
-plotlyOutput("plotly_cancer_dist")
-output$plotly_cancer_dist <- renderPlotly({
-  map_data_df_dist <- map_data_df %>% filter(!state %in% input$exclude_state_dist_us)
-  plot_ly(
-          x = map_data_df_dist[[input$dist_level_us]], 
-          y = map_data_df_dist[['cancer_per100k']], 
-          color = map_data_df_dist[[input$dist_level_us]], 
-          type = "box", 
-          boxpoints = "all", 
-          jitter = 0.3,
-        pointpos = -1.0,
-        hoverinfo = "text",
-                      hovertext = paste0("<b>Location: </b>", 
-                          map_data_df_dist$county,", ",map_data_df_dist$state, 
-                          "<br><b>Cancer/100k: </b>", 
-                          map_data_df_dist$cancer_per100k))
-        })
 
-# data = map_data_df %>% mutate(cancer_pCI = cancer_95ciH - cancer_per100k, cancer_mCI = cancer_per100k - cancer_95ciL) %>% filter(!is.na(cancer_per100k)) %>% arrange(cancer_per100k)
-# data <- data %>% mutate(order = 1:nrow(data))
-# plot_ly(data = data,
-#         x = ~order,
-#         y = ~cancer_per100k,
-#         error_y = list(array = ~cancer_pCI),
-#         type = 'scatter',
-#         mode = 'markers'
-# )
+leafletOutput("sf_map")
 
+output$sf_map <- renderLeaflet({
+
+  leaflet() %>%
+  # Base groups
+  addTiles() %>%
+  setView(lng = -105, lat = 40, zoom = 4)  %>%
+  addPolygons(data=map_data,
+              fillColor = ~pal_sites(num_sites),
+              fillOpacity = 0.8,
+              color = "#BDBDC3",
+              weight = 1,
+              layerId = ~GEOID,
+              group="# of Superfund Sites",
+              popup=paste0("<strong>Location: </strong>", 
+                          map_data$county,", ",map_data$state,
+                          "<br><strong># of Superfund Sites: </strong>", 
+                          map_data$num_sites,
+                          "<br><strong>Summed Site Score: </strong>", 
+                          map_data$sum_site_score)
+              ) %>% 
+  addPolygons(data=map_data,
+              fillColor = ~pal_score(sum_site_score),
+              fillOpacity = 0.8,
+              color = "#BDBDC3",
+              weight = 1,
+              layerId = ~paste(GEOID,'_s'),
+              group="Summed Site Score",
+              popup=paste0("<strong>Location: </strong>", 
+                          map_data$county,", ",map_data$state,
+                          "<br><strong># of Superfund Sites: </strong>", 
+                          map_data$num_sites,
+                          "<br><strong>Summed Site Score: </strong>", 
+                          map_data$sum_site_score)
+              ) %>% 
+  addPolygons(data = map_data,
+              fillColor = ~pal_cancer(cancer_per100k), 
+              fillOpacity = 0.8, 
+              color = "#BDBDC3", 
+              weight = 1,
+              layerId = ~paste(GEOID,'_C'),
+              popup = paste0("<strong>County: </strong>", map_data$county,", ",map_data$state,
+                            "<br><strong>Cancer/100k: </strong>",map_data$cancer_per100k,
+                            "<br><strong>Avg. Annual #: </strong>",map_data$avg_annual_count,
+                            "<br><strong>Recent Trend: </strong>",map_data$recent_trend),
+              group="Cancer Rate/100k")%>% 
+  addMarkers(data=superfund_data,
+             lat=superfund_data[['latitude']], 
+             lng=superfund_data[['longitude']], 
+             popup=paste0("<strong>Name: </strong>", 
+                          superfund_data$`Site Name`,
+                          "<br><strong>Location: </strong>", 
+                          superfund_data$county,", ",superfund_data$state,
+                          "<br><strong>Site Score: </strong>", 
+                          superfund_data$site_score, 
+                          "<br><strong>Listing Year: </strong>", 
+                          superfund_data$listing_year),
+             group = "Superfund Site Markers",
+             clusterOptions = markerClusterOptions()) %>% 
+
+  addLayersControl(
+    position = c('topright'),
+    baseGroups = c("# of Superfund Sites","Summed Site Score","Cancer Rate/100k"), #overlayGroups = c("Cancer Rate/100,000 by Counties","Number of Superfund Sites"),
+    overlayGroups = c("Superfund Site Markers"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+})
+
+observeEvent(input$sf_map_groups,{
+  leafletProxy('sf_map') %>% removeControl(layerId = "site_legend") %>% removeControl(layerId = "score_legend") %>% removeControl(layerId = "cancer_legend")
+  
+  if ("Cancer Rate/100k" %in% isolate(input$sf_map_groups)){
+    leafletProxy('sf_map') %>% addLegend(position = "bottomright",
+                                                pal = pal_cancer,
+                                                values  = map_data$cancer_per100k,
+                                                group = "Cancer Rate/100k",
+                                                title = "Cancer Rate/100k",
+                                                layerId = "cancer_legend",
+                                                labFormat = labelFormat(digits=1))
+  }
+  else if ("# of Superfund Sites" %in% isolate(input$sf_map_groups)){
+    leafletProxy('sf_map') %>% addLegend(position = "bottomright",
+                                                pal = pal_sites,
+                                                values  = map_data$num_sites,
+                                                group = "# of Superfund Sites",
+                                                title = "# of Superfund Sites",
+                                                layerId = "site_legend",
+                                                labFormat = labelFormat(digits=1))
+  }
+  else if ("Summed Site Score" %in% isolate(input$sf_map_groups)){
+    leafletProxy('sf_map') %>% addLegend(position = "bottomright",
+                                                pal = pal_score,
+                                                values  = map_data[['sum_site_score']],
+                                                group = "Summed Site Score",
+                                                title = "Summed Site Score",
+                                                layerId = "score_legend",
+                                                labFormat = labelFormat(digits=1))
+  }
+})
 ```
+
 
 ***
-
-The state by state distribution of counties shows clear differences in cancer rates.
-
-```{r}
-
-selectInput("dist_level_us","Select U.S. Breakdown Type",list("Census Region (4)" = "region",
-                                                           "Census Division (9)" = "division",
-                                                           "States" = "state"))
-
-pickerInput("exclude_state_dist_us","Exclude U.S. States",choices = c('AL','AK','AZ','AR','CA','CO','CT','DC','FL','GA','HI','ID','IL','IN','IA','KY','LA','ME','MD','MA','MI','MS','MO','MT','NE','NJ','NM','NY','NC','ND','OH','OK','OR','PA','SC','SD','TN','TX','UT','VA','WA','WV','WI','WY','DE','NV','NH','VT','RI'), options = list(`actions-box` = TRUE),multiple = T)
-```
 
 
 ### Intro: Heatmap of Cancer Rates by County {data-commentary-width=375}
 
 ```{r, eval = TRUE}
-
-
-
 
 fillRow(leafletOutput("intro_map"))
 
@@ -126,7 +205,14 @@ output$intro_map <- renderLeaflet({
               color = "#BDBDC3", 
               weight = 1,
               layerId = ~GEOID,
-              group="Cancer Rate/100,000 by Counties")
+              group="Cancer Rate/100k") %>% 
+    addLegend(position = "bottomright",
+                pal = pal_cancer,
+                values  = map_data$cancer_per100k,
+                group = "Cancer Rate/100k",
+                title = "Cancer Rate/100k",
+                layerId = "cancer_legend",
+                labFormat = labelFormat(digits=1))
 })
 
 
@@ -206,6 +292,7 @@ observeEvent(input$best_popup, {
     clearPopups()
     best <- map_data_df %>% dplyr::arrange(desc(cancer_per100k)) %>% head(react_list$num)
     best['order'] <- 1:nrow(best)
+    best <- best %>% arrange(desc(order))
     offset = isolate((input$intro_map_bounds$north - input$intro_map_bounds$south) / (23 + radius*1.8 + (18 - input$intro_map_zoom)^2 ))
 
     #shape_i <- best[react_list$num,]
@@ -224,6 +311,7 @@ observeEvent(input$worst_popup, {
     clearPopups()
     worst <- map_data_df %>% dplyr::arrange(cancer_per100k) %>% head(react_list$num)
     worst['order'] <- 1:nrow(worst)
+    worst <- worst %>% arrange(desc(order))
     offset = isolate((input$intro_map_bounds$north - input$intro_map_bounds$south) / (23 + radius*1.8 + (18 - input$intro_map_zoom)^2 ))
 
     #shape_i <- best[react_list$num,]
@@ -301,6 +389,253 @@ fluidRow(actionButton("clear_intro_map", "Reset Map"),align="center")
 ```
 
 The West and Southwest have many of the counties with the lowest cancer rates. Many of the higher cancer rate counties are in the South, particularly in Kentucky. The most interesting border between the best and worst counties appears near the tri-cities region in southwest Virginia. Kentucky counties are experiencing the highest cancer rates, while their Virginian neighbors have the lowest rates in the country.
+
+
+
+### Distribution of Cancer Rates by U.S. Regions
+
+```{r}
+plotlyOutput("plotly_cancer_dist")
+output$plotly_cancer_dist <- renderPlotly({
+  map_data_df_dist <- map_data_df %>% filter(!state %in% input$exclude_state_dist_us)
+  plot_ly(
+          x = map_data_df_dist[[input$dist_level_us]], 
+          y = map_data_df_dist[['cancer_per100k']], 
+          color = map_data_df_dist[[input$dist_level_us]], 
+          type = "box", 
+          boxpoints = "all", 
+          jitter = 0.4,
+        pointpos = -2,
+        #hoverinfo = "text",
+                     text = paste0("<b>Location: </b>",
+                          map_data_df_dist$county,", ",map_data_df_dist$state,
+                          "<br><b>Cancer/100k: </b>",
+                          map_data_df_dist$cancer_per100k))
+        })
+
+# data = map_data_df %>% mutate(cancer_pCI = cancer_95ciH - cancer_per100k, cancer_mCI = cancer_per100k - cancer_95ciL) %>% filter(!is.na(cancer_per100k)) %>% arrange(cancer_per100k)
+# data <- data %>% mutate(order = 1:nrow(data))
+# plot_ly(data = data,
+#         x = ~order,
+#         y = ~cancer_per100k,
+#         error_y = list(array = ~cancer_pCI),
+#         type = 'scatter',
+#         mode = 'markers'
+# )
+
+```
+
+***
+
+As the heatmap on the previous board showed us, there are clear differences in cancer rates across difference parts of the United States. Examine these differences further by ***selecting*** the administrative breakdown of your choice. For Census Regions, distribution of cancer rates shows the West having the lowest rates. ***Hover*** your mouse over the dots to see the individual county info and the box to get the quantile values.
+
+```{r}
+
+selectInput("dist_level_us","Select U.S. Breakdown Type",list("Census Region (4)" = "region",
+                                                           "Census Division (9)" = "division",
+                                                           "EPA Region (10)" = "epa_region",
+                                                           "States" = "state"), selected = "Census Region (4)")
+```
+
+But what about if we exclude some of the worst states? In particular there was a stark difference between counties on the border between Kentucky and Virginia. Try ***selecting*** Kentucky on the state exclusion list to see how removing those counties affects the remaining distributions. Try ***selecting more than one*** to see the effects. ***Flip*** back and forth between this and the previous board to pick out high or low cancer rate states and see removing them affects the box plots.
+
+```{r}
+pickerInput("exclude_state_dist_us","Exclude U.S. States",choices = c('AL','AK','AZ','AR','CA','CO','CT','DC','FL','GA','HI','ID','IL','IN','IA','KY','LA','ME','MD','MA','MI','MS','MO','MT','NE','NJ','NM','NY','NC','ND','OH','OK','OR','PA','SC','SD','TN','TX','UT','VA','WA','WV','WI','WY','DE','NV','NH','VT','RI'), options = list(`actions-box` = TRUE),multiple = T)
+```
+
+### Powerplant Plants <br> Across the United States
+
+```{r}
+
+observeEvent({input$clear_powerplant_map},{
+             if (input$choose_plant_type == "All"){
+               react_list$pp_num_type = "num_pp"
+               react_list$pp_capacity_type = "sum_capacity_mw"
+               react_list$pp_pal = pal_pp
+               react_list$pp_data = pp_data
+             }
+             else if (input$choose_plant_type == "Renewable"){
+               react_list$pp_num_type = "pp_renewable"
+               react_list$pp_capacity_type = "capacity_mw_renewable"
+               bins_pp_mw <- c(0,1,50,150, 960, 1580, 2300, 2900, 5000, Inf)
+               react_list$pp_pal = colorBin("YlOrRd", domain = map_data[[react_list$pp_num_type]], bins = bins_pp)
+               react_list$pp_pal_mw = colorBin("YlOrRd", domain = map_data[[react_list$pp_capacity_type]], bins = bins_pp_mw)
+               react_list$pp_data = pp_data %>% filter(primary_fuel %in% c("Geothermal","Hydro","Nuclear","Solar","Wind","Bioass"))
+             }
+             else if (input$choose_plant_type == "Carbon"){
+               react_list$pp_num_type = "pp_carbon"
+               react_list$pp_capacity_type = "capacity_mw_carbon"
+               bins_pp_mw <- c(0,1,50,150, 960, 1580, 2300, 2900, 5000, Inf)
+               react_list$pp_pal = colorBin("YlOrRd", domain = map_data[[react_list$pp_num_type]], bins = bins_pp)
+               react_list$pp_pal_mw = colorBin("YlOrRd", domain = map_data[[react_list$pp_capacity_type]], bins_pp_mw)
+               react_list$pp_data = pp_data %>% filter(primary_fuel %in% c("Coal","Gas","Oil","Petcoke"))
+             }
+             else{
+               react_list$pp_num_type = paste0("pp_",str_to_lower(input$choose_plant_type))
+               react_list$pp_capacity_type = paste0("capacity_mw_",str_to_lower(input$choose_plant_type))
+               react_list$pp_pal = colorBin("YlOrRd", domain = map_data[[react_list$pp_num_type]], bins = bins_pp)
+               react_list$pp_pal_mw = colorBin("YlOrRd", domain = map_data[[react_list$pp_capacity_type]])
+               react_list$pp_data = pp_data %>% filter(primary_fuel == input$choose_plant_type)
+             }
+})
+
+leafletOutput("pp_map")
+
+
+
+
+
+output$pp_map <- renderLeaflet({
+
+  polygon_data_num <- map_data[[react_list$pp_num_type]]
+  polygon_data_capacity <- map_data@data[[react_list$pp_capacity_type]]
+  pal_num <- react_list$pp_pal
+  pal_mw <- react_list$pp_pal_mw
+  pp_data_map <- react_list$pp_data
+  capacity_variable <- react_list$pp_capacity_type
+  message(nrow(react_list$pp_data))
+  
+        
+  energyIcons <- icons(
+  iconUrl = case_when(pp_data_map$primary_fuel ==  "Coal" ~   "coal.png",
+                      pp_data_map$primary_fuel ==  "Gas" ~   "gas.png",
+                      pp_data_map$primary_fuel ==  "Geothermal" ~   "geothermal.png",
+                      pp_data_map$primary_fuel ==  "Hydro" ~   "hydro.png",
+                      pp_data_map$primary_fuel ==  "Nuclear" ~   "nuclear.png",
+                      pp_data_map$primary_fuel ==  "Oil" ~   "oil.png",
+                      pp_data_map$primary_fuel ==  "Solar" ~   "solar.png",
+                      pp_data_map$primary_fuel ==  "Waste" ~   "waste.png",
+                      pp_data_map$primary_fuel ==  "Wind" ~   "wind.png",
+                      pp_data_map$primary_fuel ==  "Biomass" ~   "biomass.png",
+                      TRUE ~ "all_other.png"
+                      
+  ),
+  iconWidth = 48, iconHeight = 48,
+  iconAnchorX = 24, iconAnchorY = 20,
+  popupAnchorX = 0, popupAnchorY = 48
+  )
+  
+  
+  leaflet() %>%
+  # Base groups
+  addTiles() %>%
+  setView(lng = -105, lat = 40, zoom = 4)  %>%
+  addPolygons(data=map_data,
+              fillColor = ~pal_num(polygon_data_num),
+              fillOpacity = 0.8,
+              color = "#BDBDC3",
+              weight = 1,
+              layerId = ~GEOID,
+              group="# of Powerplants",
+              popup=paste0("<strong>Location: </strong>", 
+                          map_data$county,", ",map_data$state,
+                          "<br><strong># of Powerplants: </strong>", 
+                          polygon_data_num,
+                          "<br><strong>Total Capacity (MW): </strong>", 
+                          polygon_data_capacity)
+              ) %>% 
+  addPolygons(data=map_data,
+              fillColor = ~pal_mw(polygon_data_capacity),
+              fillOpacity = 0.8,
+              color = "#BDBDC3",
+              weight = 1,
+              layerId = ~paste(GEOID,'_1'),
+              group="Capacity (MW)",
+              popup=paste0("<strong>Location: </strong>", 
+                          map_data$county,", ",map_data$state,
+                          "<br><strong># of Powerplants: </strong>", 
+                          polygon_data_num,
+                          "<br><strong>Total Capacity (MW): </strong>", 
+                          polygon_data_capacity)
+              ) %>% 
+  addPolygons(data = map_data,
+              fillColor = ~pal_cancer(cancer_per100k), 
+              fillOpacity = 0.8, 
+              color = "#BDBDC3", 
+              weight = 1,
+              layerId = ~paste(GEOID,'_C'),
+              popup = paste0("<strong>County: </strong>", map_data$county,", ",map_data$state,
+                            "<br><strong>Cancer/100k: </strong>",map_data$cancer_per100k,
+                            "<br><strong>Avg. Annual #: </strong>",map_data$avg_annual_count,
+                            "<br><strong>Recent Trend: </strong>",map_data$recent_trend),
+              group="Cancer Rate/100k")%>% 
+  addMarkers(data=pp_data_map,
+             lat=pp_data_map[['latitude']], 
+             lng=pp_data_map[['longitude']], 
+             icon = energyIcons,
+             popup=paste0("<strong>Name: </strong>", 
+                          pp_data_map$name,
+                          "<br><strong>Location: </strong>", 
+                          pp_data_map$county,", ",pp_data_map$state,
+                          "<br><strong>Fuel Type: </strong>", 
+                          pp_data_map$primary_fuel, 
+                          "<br><strong>Capacity MW: </strong>", 
+                          pp_data_map$capacity_mw,
+                          "<br><strong>'13-'17 Yearly Generation (GW):  </strong>",round(pp_data_map$generation_gwh_avg,2),
+                    "<br><strong>Commissioning Year: </strong>", pp_data_map$commissioning_year),
+             #popupOptions = popupOptions(offset = list(c(0,10)))
+             group = "Powerplant Markers",
+             
+             clusterOptions = markerClusterOptions()) %>% 
+
+  addLayersControl(
+    position = c('topright'),
+    baseGroups = c("# of Powerplants","Capacity (MW)","Cancer Rate/100k"), #overlayGroups = c("Cancer Rate/100,000 by Counties","Number of Superfund Sites"),
+    overlayGroups = c("Powerplant Markers"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+})
+
+observeEvent(input$pp_map_groups,{
+  leafletProxy('pp_map') %>% removeControl(layerId = "pp_legend") %>% removeControl(layerId = "capacity_legend") %>% removeControl(layerId = "cancer_legend")
+  
+  if ("Cancer Rate/100k" %in% isolate(input$pp_map_groups)){
+    leafletProxy('pp_map') %>% addLegend(position = "bottomright",
+                                                pal = pal_cancer,
+                                                values  = map_data$cancer_per100k,
+                                                group = "Cancer Rate/100k",
+                                                title = "Cancer Rate/100k",
+                                                layerId = "cancer_legend",
+                                                labFormat = labelFormat(digits=1))
+  }
+  else if ("# of Powerplants" %in% isolate(input$pp_map_groups)){
+    leafletProxy('pp_map') %>% addLegend(position = "bottomright",
+                                                pal = pal_num,
+                                                values  = polygon_data_num,
+                                                group = "# of Powerplants",
+                                                title = "# of Powerplants",
+                                                layerId = "pp_legend",
+                                                labFormat = labelFormat(digits=1))
+  }
+  else if ("Capacity (MW)" %in% isolate(input$pp_map_groups)){
+    leafletProxy('pp_map') %>% addLegend(position = "bottomright",
+                                                pal = pal_mw,
+                                                values  = polygon_data_capacity,
+                                                group = "Capacity (MW)",
+                                                title = "Capacity (MW)",
+                                                layerId = "capacity_legend",
+                                                labFormat = labelFormat(digits=1))
+  }
+})
+```
+
+
+***
+On the upper right control panel of the map, ***choose*** among different heatmap options to visually explore the relationship between energy production and cancer rates. You can also use the ***checkbox*** to show/hide the powerplant markers. ***Zoom in/out and click*** around the map to see stats on energy generation at individual plants or counties. Counties that are grey are the counties are missing the cancer rate variable. In particular take a look at Southern California and Kentucky. Flip back and forth between theatmaps to see where there are large differences.
+
+***Select*** the type of powerplant and ***click*** the "Reset Map" button to see how specific segments of the energy sector are distributed around the country. Two broad categories are in place for carbon-based powerplants (petcoke, coal, oil and natural gas) and renewable powerplants (biomass, geothermal, hydro, nuclear, solar, wind).
+
+```{r}
+selectizeInput("choose_plant_type","Choose Plant Type",choices = list('All','Carbon','Renewable',
+  'Solar','Gas','Oil','Wind','Hydro','Coal','Biomass','Waste','Cogeneration','Storage','Geothermal','Nuclear','Petcoke','Other'),
+  selected = list(
+  'All'), options = list(`virtualScroll` = 6))
+
+fluidRow(actionButton("clear_powerplant_map", "Reset Map"),align="center")
+```
+
+Carbon-based powerplants release more emissions than renewable powerplants, so for the purpose of finding links to cancer rates, it is important to see where the worst emitting powerplants are located in the United States. Recall our main takeaways from the cancer heatmap and distributions, that the West has some of the lowest cancer rate counties while Kentucky, Nebraska, and portions of the Northeast have high rate counties. Union County, FL does not any powerplants despite its high cancer rate.
+
 
 ### Heatmap of Cancer Rates by County <br> East Coast Problems {data-commentary-width=600}
 
@@ -386,7 +721,7 @@ observeEvent({event_data("plotly_click", source="cancer_plotly")}, {
     
     leafletProxy("cancer_map") %>% addPopups(lat = shape_i$latitude + offset, lng = shape_i$longitude, 
                                              paste0("<strong>County: </strong>", 
-                                                    shape_i$county, 
+                                                    shape_i$county,", ",shape_i$state,
                                                     "<br><strong>Cancer/100k: </strong>", 
                                                     shape_i$cancer_per100k))
   })
@@ -499,3 +834,4 @@ Run models to see the most important sites. have to have results already made.
 Regression results showing prediction and actual relationship
 
 ### Frame 7 conclusion, references, and github.
+

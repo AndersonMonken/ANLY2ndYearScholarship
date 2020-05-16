@@ -3,7 +3,7 @@
     position: fixed;
     z-index: 1000;
     top: 30%;
-    left:  25%;
+    left:  30%;
     margin-top: -100px;
     margin-left: -50px;
     display: none;
@@ -28,6 +28,14 @@
 
   $(document).ready(function(){
     $("#cancer_map").on("shiny:recalculating", function(e){
+      $(".busy").show();
+    }).on("shiny:recalculated", function(e){
+      $(".busy").hide();
+    });
+  });
+  
+  $(document).ready(function(){
+    $("#site_pp_map").on("shiny:recalculating", function(e){
       $(".busy").show();
     }).on("shiny:recalculated", function(e){
       $(".busy").hide();
