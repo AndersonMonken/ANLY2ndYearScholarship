@@ -1,0 +1,323 @@
+---
+title: "modeling"
+author: "Anderson Monken"
+date: "5/16/2020"
+output: html_document
+---
+## Decision Tree
+
+```{r}
+library(rpart)
+library(rattle)
+library(tree)
+mergedata <- readRDS('model_data.rds')
+set.seed(67645)
+splitIndex <- createDataPartition(y=1:nrow(mergedata),p=0.75,list=FALSE)
+test  <- mergedata[-splitIndex,]
+train <- mergedata[splitIndex,]
+
+tree_simple <- rpart(cancer_per100k ~ ., data=train)
+
+pred_test <- predict(tree_simple,newdata = test)
+tree_mse <- sum((pred_test - test$cancer_per100k)^2/nrow(test), na.rm = TRUE)
+print(tree_mse)
+#plot(ctree(Max_Partners ~ ., data=train))
+fancyRpartPlot(tree_simple, caption = paste('Full tree, test MSE =',round(tree_mse,2)))
+savePlotToFile('simple_tree.png')
+
+
+
+mergedata <- readRDS('model_data.rds')
+set.seed(67645)
+splitIndex <- createDataPartition(y=1:nrow(mergedata),p=0.75,list=FALSE)
+test  <- mergedata[-splitIndex,]
+train <- mergedata[splitIndex,]
+
+tree_models <- list()
+tree_models[['tree_simple']] <- rpart(cancer_per100k ~ ., data=train, control = rpart.control(cp = 0.002))
+tree_models[['tree_nolocation']] <- rpart(cancer_per100k ~ ., data=train %>% select(-state,-region,-epa_region), control = rpart.control(cp = 0.002))
+
+
+tree_choice <- 'tree_simple'
+pred_test <- predict(tree_models[[tree_choice]],newdata = test)
+tree_mse <- sum((pred_test - test$cancer_per100k)^2/nrow(test), na.rm = TRUE)
+
+if (tree_choice == "tree_simple"){
+  tree_title = paste("Full Tree, test MSE =",round(tree_mse,2))
+}else if (tree_choice == "tree_nolocation"){
+  tree_title = paste("Tree w/o any location vars, test MSE =",round(tree_mse,2))
+}
+visTree(tree_models[[tree_choice]], main = tree_title, height = '800px')
+
+tree_choice <- 'tree_nolocation'
+pred_test <- predict(tree_models[[tree_choice]],newdata = test)
+tree_mse <- sum((pred_test - test$cancer_per100k)^2/nrow(test), na.rm = TRUE)
+
+if (tree_choice == "tree_simple"){
+  tree_title = paste("Full Tree, test MSE =",round(tree_mse,2))
+}else if (tree_choice == "tree_nolocation"){
+  tree_title = paste("Tree w/o any location vars, test MSE =",round(tree_mse,2))
+}
+visTree(tree_models[[tree_choice]], main = tree_title, height = '800px')
+```
+
+## Forest
+
+```{r}
+library(randomForest)
+library(randomForestExplainer)
+library(caret)
+library(parallel)
+library(dplyr)
+library(tidyr)
+map_data <- readRDS('map_data.rds') %>% as.data.frame()
+map_data_df <- map_data %>% dplyr::select(cancer_per100k, sum_site_score,num_sites, state, pp_renewable, pp_carbon, num_pp, sum_capacity_mw, capacity_mw_renewable, capacity_mw_carbon, region, epa_region) %>% filter(!is.na(cancer_per100k)) %>% mutate(state = as.factor(state), region = as.factor(region)) %>% drop_na()
+
+saveRDS(map_data_df, 'model_data.rds')
+
+
+
+param_list <- list(mtry = c(4,6,11), 
+ntree = c(seq(1,149,1),seq(150,500,5)))
+param_df_forest <- do.call(expand.grid, param_list) %>% mutate(test_mse = 0, train_mse = 0)
+  
+  
+forest_run <- function(i){
+  map_data_df <- readRDS('model_data.rds')
+  set.seed(67645)
+  splitIndex <- sample(1:5, nrow(map_data_df), replace = TRUE)
+  
+  temp_test_mse <- 0
+  list_return <- list()
+  param_list <- list(mtry = c(4,6,11), 
+  ntree = c(seq(1,149,1),seq(150,500,5)))
+  param_df_forest <- do.call(expand.grid, param_list) %>% mutate(test_mse = 0)
+  for (iter in 1:5){
+    test_df  <- map_data_df[splitIndex == iter,]
+    train_df <- map_data_df[splitIndex != iter,]
+    
+    randomForest_model <- randomForest(cancer_per100k ~ ., 
+                     data = train_df, 
+                     mtry = param_df_forest[i,'mtry'], 
+                     ntree = param_df_forest[i,'ntree'],
+                     localImp = TRUE)
+    
+    pred_test <- predict(randomForest_model,newdata = test_df)
+    temp_test_mse <- temp_test_mse +  sum((pred_test - test_df$cancer_per100k)^2/nrow(test_df), na.rm = TRUE)
+  }
+  list_return$test_mse <- temp_test_mse / 5
+  
+  return(list_return)
+}
+```
+
+```{r}
+###### WARNING DON'T RUN THIS CODE UNLESS YOU HAVE A LOT OF CORES
+result_list_forest <- mclapply(X = 1:nrow(param_df_forest), FUN = forest_run, mc.cores = 24)
+
+# Gathering results
+model_vec <- c()
+test_mse_vec <- c()
+train_mse_vec <- c()
+for (i in 1:length(result_list_forest)){
+  model_vec <- c(model_vec, result_list_forest[[i]][['model']])
+  test_mse_vec <- c(test_mse_vec, result_list_forest[[i]][['test_mse']])
+  train_mse_vec <- c(train_mse_vec, result_list_forest[[i]][['train_mse']])
+}
+decision_df <- param_df_forest
+decision_df['test_mse'] <- test_mse_vec
+decision_df['train_mse'] <- train_mse_vec
+
+saveRDS(decision_df,'forestresult.rds')
+```
+
+```{r}
+decision_df <- readRDS('forestresult.rds')
+
+# making plot of trees to error
+plot_testerrorrandom <- ggplot(data = decision_df %>% mutate(mtry = as.factor(mtry)), aes(x = ntree, y = test_mse, color = mtry)) + 
+  geom_vline(xintercept = 150, linetype = 'dashed') + 
+  geom_line(size = 1.1) +
+  ylab("CV Test MSE") + 
+  xlab("Number of Trees") + 
+  ggtitle("Test Error as a Function of Forest Size") +
+  scale_color_manual(values = c("4" = "blue", "6" = "goldenrod", "11" = "forestgreen"), labels = c("m = sqrt(p), 4", "m = p/2, 4","m = p, 11")) +
+  theme_bw() + ylim(2250,2500)
+plot_testerrorrandom %>% ggplotly()
+
+plot_testerrorrandom_zoom <- ggplot(data = decision_df %>% filter(ntree > 10 & ntree < 150) %>% mutate(mtry = as.factor(mtry)), aes(x = ntree, y = test_mse, color = mtry)) + 
+  geom_line(size = 1.1) +
+  ylab("CV Test MSE") + 
+  xlab("Number of Trees") + 
+  ggtitle("Test Error as a Function of Tree #") +
+  scale_color_manual(values = c("4" = "blue", "9" = "goldenrod", "18" = "forestgreen"), labels = c("m = sqrt(p), 4", "m = p/2, 9","m = p, 18")) +
+  theme(legend.title = element_blank()) + 
+  geom_point(data = data.frame(y = 76.119, x = 120), aes(x = x, y = y), color = "red", size = 5, shape = 2)
+
+plot_testerrorrandom
+ggsave('forest_testerror_plot.png',plot_testerrorrandom, height = 6, width = 8)
+```
+
+```{r}
+mergedata <- readRDS('model_data.rds')
+set.seed(67645)
+splitIndex <- createDataPartition(y=1:nrow(mergedata),p=0.75,list=FALSE)
+test  <- mergedata[-splitIndex,]
+train <- mergedata[splitIndex,]
+
+best_forest <-     randomForest(cancer_per100k ~ ., 
+                   data = train, 
+                   mtry = 4, 
+                   ntree = 100,
+                   localImp = TRUE
+                 )
+best_bag <-     randomForest(cancer_per100k ~ ., 
+                   data = train, 
+                   mtry = 11, 
+                   ntree = 100,
+                   localImp = TRUE
+                 )
+min_depth_frame_forest <- min_depth_distribution(best_forest)
+min_depth_frame_bag <- min_depth_distribution(best_bag)
+
+plot_depth_forest <- plot_min_depth_distribution(min_depth_frame_forest)
+plot_depth_bag <- plot_min_depth_distribution(min_depth_frame_bag)
+
+saveRDS(plot_depth_forest,'forest_importance_plot.rds')
+
+ggsave('forest_depth_plot_forest.png',plot_depth_forest, height = 6, width = 8)
+
+ggsave('forest_depth_plot_bag.png',plot_depth_bag, height = 6, width = 8)
+```
+
+```{r}
+library(ggpubr)
+importance_frame_forest <- measure_importance(best_forest)
+importance_frame_bag <- measure_importance(best_bag)
+#plot_predict_interaction(best_forest, test, "Intl_tourist_arrival", "mobilesub_per100peeps")
+
+plot_importance_bag <- plot_multi_way_importance(importance_frame_bag, x_measure = "mse_increase", size_measure = "no_of_nodes", main = "Bagging: Multi-way Importance Plot")
+plot_importance_forest <- plot_multi_way_importance(importance_frame_forest, x_measure = "mse_increase", size_measure = "no_of_nodes", main = "Forest p = 4: Multi-way Importance Plot")
+#plot_importance_forest
+ggsave('forest_plot_importance.png',plot_importance_forest, height = 6, width = 8)
+ggsave('bag_plot_importance.png',plot_importance_bag, height = 6, width = 8)
+
+figure1 <- ggarrange(plot_depth_bag,plot_depth_forest, 
+                    ncol = 2, nrow = 1, labels = c("Bagging","Forest p=4"))
+figure1
+ggsave('bag_forest_plots1.png',figure1, height = 5, width = 12)
+
+figure2 <- ggarrange(plot_importance_bag, plot_importance_forest,
+                    ncol = 2, nrow = 1)
+figure2
+ggsave('bag_forest_plots2.png',figure2, height = 5, width = 12)
+```
+
+
+# GBM Modeling
+
+```{r}
+library("gbm")
+library(RColorBrewer)
+
+param_list <- list(interaction.depth = c(1,2,3,4,5,6,7,8), 
+                   shrinkage = c(0.01,0.0075,0.005,0.0025),
+                   ntree = c(seq(50,4000,50))
+                 )
+param_df_gbm <- do.call(expand.grid, param_list) %>% mutate(test_mse = 0, train_mse = 0)
+  
+gbm_run <- function(i){
+  mergedata <- readRDS('model_data.rds')
+  set.seed(67645)
+  
+
+  param_list <- list(interaction.depth = c(1,2,3,4,5,6,7,8), 
+                   shrinkage = c(0.01,0.0075,0.005,0.0025),
+                   ntree = c(seq(50,4000,50))
+                   )
+  param_df_gbm <- do.call(expand.grid, param_list) %>% mutate(test_mse = 0, train_mse = 0)
+  
+  splitIndex <- sample(1:5, nrow(mergedata), replace = TRUE)
+  
+  list_return <- list()
+  temp_test_mse <- 0
+  for (iter in 1:5){
+
+    test  <- mergedata[splitIndex == iter,]
+    train <- mergedata[splitIndex != iter,]
+    
+    gbm_model <- gbm(cancer_per100k ~ ., 
+                   data = train, 
+                   distribution = 'gaussian', 
+                   n.trees = param_df_gbm[i,'ntree'], 
+                   interaction.depth = param_df_gbm[i,'interaction.depth'], 
+                   shrinkage = param_df_gbm[i,'shrinkage'])
+
+
+    pred_test <- predict(gbm_model,newdata = test, n.trees = param_df_gbm[i,'ntree'])
+    temp_test_mse <- temp_test_mse + sum((pred_test - test$cancer_per100k)^2/nrow(test), na.rm = TRUE)
+  }
+  list_return$test_mse <- temp_test_mse / 5
+  
+  return(list_return)
+}
+```
+
+```{r}
+###### WARNING DON'T RUN THIS CODE UNLESS YOU HAVE A LOT OF CORES
+result_list_gbm <- mclapply(X = 1:nrow(param_df_gbm), FUN = gbm_run, mc.cores = 24)
+
+
+# Gathering results
+model_vec <- c()
+test_mse_vec <- c()
+train_mse_vec <- c()
+for (i in 1:length(result_list_gbm)){
+  model_vec <- c(model_vec, result_list_gbm[[i]][['model']])
+  test_mse_vec <- c(test_mse_vec, result_list_gbm[[i]][['test_mse']])
+  train_mse_vec <- c(train_mse_vec, result_list_gbm[[i]][['train_mse']])
+}
+decision_df_gbm <- param_df_gbm
+decision_df_gbm['test_mse'] <- test_mse_vec
+decision_df_gbm['train_mse'] <- train_mse_vec
+
+
+saveRDS(decision_df_gbm,'gbmresult.rds')
+```
+
+```{r}
+decision_df_gbm <- readRDS('gbmresult.rds')
+
+my_colors = brewer.pal(n = 11, "RdBu")[c(1:4,8:11)] #there are 9, I exluded the two lighter hues
+
+gbm_plot <- ggplot(data = decision_df_gbm %>% mutate(interaction.depth = as.factor(interaction.depth)), aes( x = ntree, y = test_mse, color =  interaction.depth)) + 
+  geom_point(data = data.frame(y = 2189.572, x = 350), aes(x = x, y = y), color = "red", size = 5, shape = 2) + geom_line() + xlab("Number of Trees") + ylab("CV Test MSE")  + labs(color = "Interaction<br>Depth") +
+  ggtitle("GBM Hyperparameter Analysis") + facet_wrap(~shrinkage, labeller = label_both) + scale_color_manual(values = my_colors)
+ggsave('gbm_plot.png',gbm_plot, height = 4, width = 5)
+
+gbm_plot %>% ggplotly()
+```
+
+```{r}
+  mergedata <- readRDS('model_data.rds')
+  set.seed(67645)
+  splitIndex <- createDataPartition(y=1:nrow(mergedata),p=0.75,list=FALSE)
+  test  <- mergedata[-splitIndex,]
+  train <- mergedata[splitIndex,]
+
+
+  gbm_model <- gbm(cancer_per100k ~ ., 
+                   data = train, 
+                   distribution = 'gaussian', 
+                   n.trees = 350, 
+                   interaction.depth = 6, 
+                   shrinkage = 0.01)
+
+summary_gbm_importance <- summary(gbm_model)
+
+gbm_importance <- ggplot(summary_gbm_importance %>% filter(rel.inf > 0.05), aes(x = reorder(var, rel.inf),y=rel.inf)) + geom_col(fill = 'darkblue') + coord_flip() + ylab("Relative Importance") + xlab("Variable") + ggtitle("Variable Importance for Best GBM\n (ntree = 350, depth = 6, shrinkage = 0.01)")
+
+saveRDS(gbm_importance, 'gbm_importance_plot.rds')
+ggsave('gbm_plot_importance.png',gbm_importance, height = 4, width = 5)
+gbm_importance %>% ggplotly()
+```

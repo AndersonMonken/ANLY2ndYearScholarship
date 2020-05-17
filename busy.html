@@ -2,8 +2,8 @@
   .busy { 
     position: fixed;
     z-index: 1000;
-    top: 30%;
-    left:  30%;
+    top: 28%;
+    left:  28%;
     margin-top: -100px;
     margin-left: -50px;
     display: none;
@@ -35,7 +35,14 @@
   });
   
   $(document).ready(function(){
-    $("#site_pp_map").on("shiny:recalculating", function(e){
+    $("#pp_map").on("shiny:recalculating", function(e){
+      $(".busy").show();
+    }).on("shiny:recalculated", function(e){
+      $(".busy").hide();
+    });
+  });
+  $(document).ready(function(){
+    $("#sf_map").on("shiny:recalculating", function(e){
       $(".busy").show();
     }).on("shiny:recalculated", function(e){
       $(".busy").hide();
