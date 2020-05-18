@@ -1117,7 +1117,7 @@ tabPanel("Decision Tree Model",
      
           tags$div(style = 'overflow-y:scroll;height:600px;',tags$p("The decision tree model is shown on the main graph to the left. If the tree does not show up, follow the directions on bullet three to refresh the tree rendering."),
                   tags$ul(
-                    tags$li("To see the most important nodes on the tree, ",tags$u("hover, click, and pan.")),
+                    tags$li("To see the most important nodes on the tree, ",tags$u("hover, click, zoom, and pan.")),
                     tags$li("View the stats on the terminal nodes (purple boxes) by ",tags$u("hovering over")," the node and ",tags$u("click")," rules to see the criteria for that terminal node. The cancer rates generally go from low to high as you go from the left to the right on the terminal nodes of the tree."),
                     tags$li("There are two different trees that are considered here: a full tree model with all 11 predictors and an 8 predictor model without any location information (state, region, epa_region). ", tags$u("Select the tree type below")," to see each tree type.")),
      
@@ -1161,14 +1161,14 @@ output$tree_model <- renderUI({
   tree_choice <- input$tree_choice
 
   if (tree_choice == "tree_simple"){
-    tree_url = 'https://andersonmonken.georgetown.domains/wp-content/uploads/2020/05/full_tree.html'
+    tree_url = 'https://andersonmonken.georgetown.domains/wp-content/uploads/2020/05/full_tree-1.html'
     
   }
   else if (tree_choice == "tree_nolocation"){
-    tree_url = 'https://andersonmonken.georgetown.domains/wp-content/uploads/2020/05/nolocation_tree.html'
+    tree_url = 'https://andersonmonken.georgetown.domains/wp-content/uploads/2020/05/nolocation_tree-1.html'
     
   }
-  tags$iframe(src=tree_url, width = '100%', height = '900px', style="border: none") #
+  tags$iframe(src=tree_url, width = '100%', height = '700px', style="border: none") #
   
 })
 
@@ -1190,7 +1190,7 @@ plot_testerrorrandom <- ggplot(data = decision_df %>% mutate(mtry = as.factor(mt
   scale_color_manual(values = c("4" = "blue", "6" = "goldenrod", "11" = "forestgreen"), labels = c("m = sqrt(p), 4", "m = p/2, 4","m = p, 11")) + ylim(2000,2800)
 output$forest_mse <- renderPlotly({plot_testerrorrandom %>% ggplotly()})
 
-output$forest_importance <- renderPlot({readRDS('forest_importance_plot.rds') + ggtitle("Best Random Forest Model (mtry=4, ntree=100)\nDistribution of minimal depth and its mean")},height = 650)
+output$forest_importance <- renderPlot({readRDS('forest_importance_plot.rds') + ggtitle("Best Random Forest Model (mtry=4, ntree=100)\nDistribution of minimal depth and its mean")},height = 550)
 
 #### GBM MODEL
 decision_df_gbm <- readRDS('gbmresult.rds')

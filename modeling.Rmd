@@ -47,7 +47,7 @@ if (tree_choice == "tree_simple"){
 }else if (tree_choice == "tree_nolocation"){
   tree_title = paste("Tree w/o any location vars, test MSE =",round(tree_mse,2))
 }
-visTree(tree_models[[tree_choice]], main = tree_title, height = '800px')
+visTree(tree_models[[tree_choice]], main = tree_title, height = '700px')
 
 tree_choice <- 'tree_nolocation'
 pred_test <- predict(tree_models[[tree_choice]],newdata = test)
@@ -58,7 +58,7 @@ if (tree_choice == "tree_simple"){
 }else if (tree_choice == "tree_nolocation"){
   tree_title = paste("Tree w/o any location vars, test MSE =",round(tree_mse,2))
 }
-visTree(tree_models[[tree_choice]], main = tree_title, height = '800px')
+visTree(tree_models[[tree_choice]], main = tree_title, height = '700px')
 ```
 
 ## Forest
@@ -315,7 +315,7 @@ gbm_plot %>% ggplotly()
 
 summary_gbm_importance <- summary(gbm_model)
 
-gbm_importance <- ggplot(summary_gbm_importance %>% filter(rel.inf > 0.05), aes(x = reorder(var, rel.inf),y=rel.inf)) + geom_col(fill = 'darkblue') + coord_flip() + ylab("Relative Importance") + xlab("Variable") + ggtitle("Variable Importance for Best GBM\n (ntree = 350, depth = 6, shrinkage = 0.01)")
+gbm_importance <- ggplot(summary_gbm_importance %>% filter(rel.inf > 0.3), aes(x = reorder(var, rel.inf),y=rel.inf)) + geom_col(fill = 'darkblue') + coord_flip() + ylab("Relative Importance") + xlab("Variable") + ggtitle("Variable Importance for Best GBM\n (ntree = 350, depth = 6, shrinkage = 0.01)")
 
 saveRDS(gbm_importance, 'gbm_importance_plot.rds')
 ggsave('gbm_plot_importance.png',gbm_importance, height = 4, width = 5)
